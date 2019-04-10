@@ -1,0 +1,72 @@
+---
+title: "Predicting classes of right and wrong weight lift exercises"
+author: "Tom van Overbeeke"
+date: "2019 M04 10"
+output: html_document
+abstract: "Abstract/executive summary: In this short paper we've built a model to predict whether weight lifting exercises were done in the correct way, using accelerometers on arms, legs, torso and dumbell. If the exercise was not done in the right way, the model also predicts which common mistake was made."
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.width=12, fig.height=8, fig.path='Figs/',
+                      warning=FALSE, message=FALSE)
+```
+## Main goal
+We try to build a model to predict whether weight lifting exercises were done in the correct way, using accelerometers on arms, legs, torso and dumbell. To simulate this, we have a data set with the data from the accelerometers and whether the exercise was done in the right way (class A), or in a wrong way (class B till E), where these last four classes correspond to a common mistake when doing this exercise.
+
+## Data preperation
+```{r data prep, eval = FALSE}
+library(data.table)
+library(caret)
+setwd("~/R/Coursera/Practical Machine Learning")
+final_test <- fread('pml-testing.csv')
+data <- fread('pml-training.csv')
+data <- data[,-c('V1','user_name','raw_timestamp_part_1', 'raw_timestamp_part_2', 'cvtd_timestamp', 'new_window', 'num_window')]
+
+colna <- unname(apply(data, 2, function(x) any(is.na(x))))
+test <- which(colna)
+data<-data.frame(data)[,-test]
+```
+
+We first prepere the data for building the model. We see that there is a lot of data, but we will disregard all data which is not from the accelerometers, as we really want the model to use these variables, and not predict using knowledge about the time of day or which user performed the exercise. We also disregard the variables that are missing for any or the data entries. This still leaves us with 53 variables, so we still have a lot to work with. By our choice of model (gradient boosting and random forest), we don't need to transform or normalize our data.
+
+## Data splitting and training the model
+
+```{r data split, eval = FALSE}
+set.seed(42)
+inTrain <- createDataPartition(data$classe, p = 0.6)[[1]]
+training <- data[inTrain,]
+testing_validation <- data[-inTrain,]
+inTest <- createDataPartition(testing_validation$classe, p = 0.5)[[1]]
+testing <- testing_validation[inTest,]
+validation <- testing_validation[-inTest,]
+```
+
+As we have a lot of data we choose for a standard 60/20/20 split for training, testing and validation. Our plan is to train two models (gradient boosting and random forest) on the trainingset, build a random forest to make a final choice on the testing set and test our predictions on the validation set. We also considered to use linear discriminant analysis, but this had a significantly lower accuracy, so we disregard this model.
+
+```{r model training, eval = FALSE}
+model_rf <- train(classe~., method = 'rf', training)
+model_b <- train(classe~., method = 'gbm', verbose = FALSE, training)
+
+testing$pred_rf <- predict(model_rf)
+testing$pred_b <- predict(model_b)
+
+model <- train(classe ~ pred_rf + pred_b + pred_lda, method = 'rf', testing)
+
+validation$pred_rf <- predict(model_rf, validation)
+validation$pred_b <- predict(model_b, validation)
+validation$pred <- predict(model, validation)
+```
+
+## Checking the accuracy of the model
+```{r accuracy, eval = FALSE}
+length(which(validation$pred == validation$classe))/length(validation$classe)
+confusionMatrix(validation$pred, as.factor(validation$classe))$table
+```
+
+```{r matrix, echo = FALSE}
+library(knitr)
+library(kableExtra)
+mat <- matrix(c("Pred|True", 'A', 'B', 'C', 'D', 'E', 'A', '1098 ', 7,3,4,4,'B',40,'685 ',29,3,2,'C',3,23,'640 ',15,3,'D',3,14,26,'595 ',5,'E',1,24,6,29,'661 '), nrow = 6, ncol = 6)
+kable_styling(kable(mat))
+```
+First of all we check the standard accuracy of our model. It turns out that our prediction matches the actual classe in 94% of the time. We can also build a confusion matrix. Again we see that our predictions are very accurate, but we also see that some B's are classified as A's or C's, some E's are classified as B's and D's and some D's are classified as C's.
